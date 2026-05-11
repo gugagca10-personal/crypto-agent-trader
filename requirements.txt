@@ -1,0 +1,7 @@
+python-binance==1.0.19
+anthropic>=0.40.0
+pandas>=2.0.0
+pandas-ta>=0.3.14b
+aiohttp>=3.9.0
+boto3>=1.34.0          # Cloudflare R2 (S3-compatible)
+python-dotenv>=1.0.0
