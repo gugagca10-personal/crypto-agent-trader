@@ -1,8 +1,13 @@
-# Secrets — NUNCA commitar
+# Secrets — NEVER commit
 .env
+.env.*
 *.env
-.env.local
-.env.production
+!.env.example
+secrets/
+*.pem
+*.key
+credentials.json
+config.local.*
 
 # Python
 __pycache__/
@@ -20,7 +25,7 @@ venv/
 env/
 ENV/
 
-# Logs (locais)
+# Logs (local only — may contain account/balance info)
 logs/
 *.log
 
@@ -31,12 +36,23 @@ logs/
 *.swo
 .DS_Store
 
-# Testing
+# Testing / coverage
 .pytest_cache/
 .coverage
 htmlcov/
+.mypy_cache/
+.ruff_cache/
 
-# Data local
-data/
+# Local data (anchored to repo root only — must not match src/data/)
+/data/
 *.db
 *.sqlite
+*.csv
+
+# OS
+Thumbs.db
+ehthumbs.db
+
+# Claude / agent state
+.claude/
+.aider*

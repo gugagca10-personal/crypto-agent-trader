@@ -23,10 +23,22 @@ def get_logger(name: str) -> logging.Logger:
     console.setFormatter(fmt)
     logger.addHandler(console)
 
-    os.makedirs("logs", exist_ok=True)
-    today = datetime.now().strftime("%Y%m%d")
-    file_h = logging.FileHandler(f"logs/trader_{today}.log", encoding="utf-8")
-    file_h.setFormatter(fmt)
-    logger.addHandler(file_h)
+    log_dir = "logs"
+    try:
+        os.makedirs(log_dir, exist_ok=True)
+        os.chmod(log_dir, 0o700)
+        today = datetime.now().strftime("%Y%m%d")
+        log_path = os.path.join(log_dir, f"trader_{today}.log")
+        file_h = logging.FileHandler(log_path, encoding="utf-8")
+        file_h.setFormatter(fmt)
+        logger.addHandler(file_h)
+        # New log files are owner-readable only.
+        try:
+            os.chmod(log_path, 0o600)
+        except OSError:
+            pass
+    except OSError as e:
+        console.handleError = lambda r: None
+        logger.warning(f"File logging disabled: {e}")
 
     return logger
