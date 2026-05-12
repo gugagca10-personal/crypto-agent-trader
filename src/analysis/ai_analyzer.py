@@ -112,10 +112,10 @@ class AIAnalyzer:
 
             symbol = str(data["symbol"]).upper()
             confidence = max(0, min(100, int(data["confidence"])))
-            entry = float(data["suggested_entry"])
-            stop = float(data["stop_loss"])
-            take = float(data["take_profit"])
-            rr = float(data["risk_reward_ratio"])
+            entry = float(data["suggested_entry"] or 0)
+            stop = float(data["stop_loss"] or 0)
+            take = float(data["take_profit"] or 0)
+            rr = float(data["risk_reward_ratio"] or 0)
 
             if action == "BUY":
                 if not is_safe_symbol(symbol, excluded_bases, candidate_symbols):
