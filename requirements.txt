@@ -3,7 +3,7 @@
 python-binance==1.0.19
 anthropic==0.42.0
 pandas==2.2.3
-pandas-ta==0.3.14b0
+pandas-ta==0.4.71b0
 aiohttp==3.10.11
 boto3==1.35.74
 python-dotenv==1.0.1
