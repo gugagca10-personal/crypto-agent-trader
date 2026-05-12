@@ -1,6 +1,7 @@
 from typing import Dict, List, Optional
 
-from binance import AsyncClient, BinanceAPIException, BinanceRequestException
+from binance import AsyncClient
+from binance.exceptions import BinanceAPIException, BinanceRequestException
 
 from ..utils.logger import get_logger
 from ..utils.security import is_excluded_pair
