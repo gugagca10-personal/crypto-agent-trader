@@ -66,3 +66,19 @@ class MarketDataService:
             except Exception as e:
                 logger.error(f"Failed to fetch {sym}: {e}")
         return results
+
+    async def get_multi_tf_snapshot(
+        self, symbols: List[str]
+    ) -> Dict[str, Dict[str, pd.DataFrame]]:
+        """Fetches 15m and 1h candles for each symbol. Returns {symbol: {tf: df}}."""
+        results: Dict[str, Dict[str, pd.DataFrame]] = {}
+        for sym in symbols:
+            try:
+                df_15m = await self.get_ohlcv(sym, "15m", limit=100)
+                await asyncio.sleep(0.05)
+                df_1h = await self.get_ohlcv(sym, "1h", limit=50)
+                await asyncio.sleep(0.05)
+                results[sym] = {"15m": df_15m, "1h": df_1h}
+            except Exception as e:
+                logger.error(f"Failed to fetch multi-TF {sym}: {e}")
+        return results

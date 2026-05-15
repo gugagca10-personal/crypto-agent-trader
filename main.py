@@ -140,23 +140,33 @@ async def run():
                     assert_balance_in_expected_range(usdt, config.initial_balance_usdt)
                     logger.info(f"USDT balance: ${usdt:.2f}")
 
-                    pairs = await binance.get_top_usdt_pairs(
+                    pair_data = await binance.get_top_usdt_pairs(
                         count=config.top_pairs_count,
                         excluded=config.excluded_symbols,
                     )
-                    logger.info(f"Scanning {len(pairs)} pairs — top 5: {pairs[:5]}")
+                    pairs = [p["symbol"] for p in pair_data]
+                    change_map = {p["symbol"]: p["change_24h_pct"] for p in pair_data}
+                    top_movers = sorted(pair_data, key=lambda x: x["change_24h_pct"], reverse=True)[:5]
+                    logger.info(
+                        f"Scanning {len(pairs)} pairs — top movers: " +
+                        ", ".join(f"{p['symbol']} {p['change_24h_pct']:+.1f}%" for p in top_movers)
+                    )
 
-                    snapshots = await market_data.get_market_snapshot(pairs, interval="15m")
+                    multi_tf = await market_data.get_multi_tf_snapshot(pairs)
                     fear_greed = await market_data.get_fear_greed_index()
                     logger.info(
                         f"Fear & Greed: {fear_greed['value']}/100 ({fear_greed['classification']})"
                     )
 
-                    signals = [
-                        sig
-                        for sym, df in snapshots.items()
-                        if (sig := technical.analyze(df, sym)) is not None
-                    ]
+                    signals = []
+                    for sym, tfs in multi_tf.items():
+                        sig = technical.analyze(
+                            tfs["15m"], sym,
+                            higher_tf_df=tfs.get("1h"),
+                            change_24h_pct=change_map.get(sym, 0.0),
+                        )
+                        if sig is not None:
+                            signals.append(sig)
 
                     buys = sum(1 for s in signals if "BUY" in s.recommendation)
                     sells = sum(1 for s in signals if "SELL" in s.recommendation)
@@ -192,7 +202,10 @@ async def run():
                                 logger.info(
                                     f"AI → BUY {decision.symbol} ({decision.confidence}%): {decision.reasoning}"
                                 )
-                                pos = await executor.execute_buy(decision, usdt)
+                                # Pass ATR from the matching signal for ATR-based SL/TP
+                                sig = next((s for s in signals if s.symbol == decision.symbol), None)
+                                atr = sig.atr if sig else 0.0
+                                pos = await executor.execute_buy(decision, usdt, atr=atr)
                                 if pos:
                                     r2.log_trade({
                                         "type": "open",

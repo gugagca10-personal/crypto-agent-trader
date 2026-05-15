@@ -46,16 +46,53 @@ class BinanceClientWrapper:
         balances = await self.get_account_balance()
         return balances.get("USDT", 0.0)
 
-    async def get_top_usdt_pairs(self, count: int = 20, excluded: List[str] = None) -> List[str]:
-        excluded_bases = [s.upper() for s in (excluded or [])]
+    STABLECOIN_BASES = {
+        "USDC", "FDUSD", "TUSD", "BUSD", "DAI", "USDP", "USDD",
+        "PYUSD", "EURT", "EUR", "AEUR", "USDS"
+    }
+
+    async def get_top_usdt_pairs(self, count: int = 50, excluded: List[str] = None) -> List[Dict]:
+        """Returns top USDT pairs as dicts with symbol + 24h change.
+        Combines top by volume + top by 24h gainers to catch momentum plays.
+        """
+        excluded_bases = [s.upper() for s in (excluded or [])] + list(self.STABLECOIN_BASES)
         tickers = await self.client.get_ticker()
-        usdt_pairs = [
-            t for t in tickers
-            if t["symbol"].endswith("USDT")
-            and not is_excluded_pair(t["symbol"], excluded_bases)
-        ]
-        usdt_pairs.sort(key=lambda x: float(x["quoteVolume"]), reverse=True)
-        return [t["symbol"] for t in usdt_pairs[:count]]
+
+        usdt_pairs = []
+        for t in tickers:
+            sym = t["symbol"]
+            if not sym.endswith("USDT"):
+                continue
+            if is_excluded_pair(sym, excluded_bases):
+                continue
+            try:
+                quote_vol = float(t["quoteVolume"])
+                change_pct = float(t.get("priceChangePercent", 0))
+            except (ValueError, KeyError):
+                continue
+            # Need meaningful liquidity for day trade ($1M+ daily quote volume)
+            if quote_vol < 1_000_000:
+                continue
+            usdt_pairs.append({
+                "symbol": sym,
+                "quote_volume": quote_vol,
+                "change_24h_pct": change_pct,
+            })
+
+        # Top 70% by volume + top 30% by absolute 24h move (momentum candidates)
+        vol_share = int(count * 0.7)
+        mom_share = count - vol_share
+
+        by_volume = sorted(usdt_pairs, key=lambda x: x["quote_volume"], reverse=True)[:vol_share]
+        vol_symbols = {p["symbol"] for p in by_volume}
+
+        by_momentum = sorted(
+            (p for p in usdt_pairs if p["symbol"] not in vol_symbols),
+            key=lambda x: abs(x["change_24h_pct"]),
+            reverse=True,
+        )[:mom_share]
+
+        return by_volume + by_momentum
 
     async def get_klines(self, symbol: str, interval: str = "15m", limit: int = 100) -> List:
         return await self.client.get_klines(symbol=symbol, interval=interval, limit=limit)

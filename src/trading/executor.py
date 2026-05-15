@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
 from ..data.binance_client import BinanceClientWrapper
@@ -23,8 +23,13 @@ class Position:
     usdt_invested: float
     stop_loss: float
     take_profit: float
+    atr: float = 0.0
     opened_at: datetime = field(default_factory=_utcnow)
     order_id: str = ""
+    highest_price: float = 0.0
+
+
+SYMBOL_COOLDOWN_SECONDS = 2 * 60 * 60  # 2h block after a stop-out
 
 
 class TradeExecutor:
@@ -42,13 +47,28 @@ class TradeExecutor:
         self.dry_run = dry_run
         self.consecutive_loss_limit = consecutive_loss_limit
         self.open_positions: Dict[str, Position] = {}
+        self.symbol_cooldown: Dict[str, datetime] = {}
         self.consecutive_losses = 0
         self.circuit_open = False
 
         if dry_run:
             logger.warning("DRY RUN MODE active — no real orders will be placed")
 
-    async def execute_buy(self, decision: TradeDecision, usdt_balance: float) -> Optional[Position]:
+    def _is_on_cooldown(self, symbol: str) -> bool:
+        until = self.symbol_cooldown.get(symbol)
+        if not until:
+            return False
+        if _utcnow() >= until:
+            del self.symbol_cooldown[symbol]
+            return False
+        return True
+
+    async def execute_buy(
+        self,
+        decision: TradeDecision,
+        usdt_balance: float,
+        atr: float = 0.0,
+    ) -> Optional[Position]:
         if self.circuit_open:
             logger.warning(
                 f"Circuit breaker open ({self.consecutive_losses} consecutive losses) — "
@@ -62,6 +82,12 @@ class TradeExecutor:
             logger.error(f"SECURITY: blocked buy on excluded pair {decision.symbol}")
             return None
 
+        if self._is_on_cooldown(decision.symbol):
+            until = self.symbol_cooldown[decision.symbol]
+            mins = int((until - _utcnow()).total_seconds() / 60)
+            logger.info(f"Buy skipped — {decision.symbol} on cooldown for {mins} more min")
+            return None
+
         sizing = self.risk.calculate_position_size(
             usdt_balance, decision.confidence, len(self.open_positions)
         )
@@ -69,8 +95,16 @@ class TradeExecutor:
             logger.info(f"Buy skipped — {sizing.reason}")
             return None
 
-        stop_loss = self.risk.calculate_stop_loss(decision.suggested_entry, decision.stop_loss)
-        take_profit = self.risk.calculate_take_profit(decision.suggested_entry, decision.take_profit)
+        min_notional = await self.binance.get_min_notional(decision.symbol)
+        min_order = max(min_notional, 5.0)
+        if sizing.usdt_amount < min_order:
+            logger.info(
+                f"Buy skipped — order ${sizing.usdt_amount:.2f} below minimum ${min_order:.2f} for {decision.symbol}"
+            )
+            return None
+
+        stop_loss = self.risk.calculate_stop_loss(decision.suggested_entry, decision.stop_loss, atr)
+        take_profit = self.risk.calculate_take_profit(decision.suggested_entry, decision.take_profit, atr)
 
         prefix = "[DRY RUN] " if self.dry_run else ""
         logger.info(
@@ -105,7 +139,9 @@ class TradeExecutor:
             usdt_invested=sizing.usdt_amount,
             stop_loss=stop_loss,
             take_profit=take_profit,
+            atr=atr,
             order_id=order_id,
+            highest_price=entry_price,
         )
         self.open_positions[decision.symbol] = pos
         logger.info(f"Position opened: {decision.symbol} {quantity:.6g} @ {entry_price:.6g}")
@@ -116,6 +152,22 @@ class TradeExecutor:
         for symbol, pos in list(self.open_positions.items()):
             try:
                 current_price = await self.binance.get_symbol_price(symbol)
+
+                # Track high-water mark for trailing logic
+                if current_price > pos.highest_price:
+                    pos.highest_price = current_price
+
+                # Update trailing stop before close check
+                new_stop = self.risk.update_trailing_stop(
+                    pos.entry_price, current_price, pos.stop_loss, pos.atr
+                )
+                if new_stop is not None:
+                    logger.info(
+                        f"Trailing stop {symbol}: {pos.stop_loss:.6g} → {new_stop:.6g} "
+                        f"(price {current_price:.6g}, +{(current_price/pos.entry_price-1)*100:.1f}%)"
+                    )
+                    pos.stop_loss = new_stop
+
                 should_close, reason = self.risk.should_close_position(
                     pos.entry_price, current_price, pos.stop_loss, pos.take_profit
                 )
@@ -136,8 +188,9 @@ class TradeExecutor:
                 if not self.dry_run:
                     await self.binance.place_market_sell(symbol, pos.quantity)
 
-                # Update circuit breaker state.
+                # Cooldown after a losing trade — prevents revenge entries on same symbol
                 if pnl < 0:
+                    self.symbol_cooldown[symbol] = _utcnow() + timedelta(seconds=SYMBOL_COOLDOWN_SECONDS)
                     self.consecutive_losses += 1
                     if self.consecutive_losses >= self.consecutive_loss_limit:
                         self.circuit_open = True
