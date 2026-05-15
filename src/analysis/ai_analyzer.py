@@ -12,14 +12,15 @@ logger = get_logger(__name__)
 
 API_TIMEOUT_SECONDS = 30
 
-SYSTEM_PROMPT = """You are an expert cryptocurrency day trader and technical analyst operating on Binance Spot.
+SYSTEM_PROMPT = """You are an active cryptocurrency day trader and technical analyst operating on Binance Spot.
 Your goal: identify the single best short-term (hours to 2 days) trade opportunity from the candidates provided.
 
 Rules:
-- Only recommend BUY when at least 3 indicators align strongly (RSI oversold, MACD bullish, price near lower BB, EMA uptrend, etc.)
+- Recommend BUY when at least 2 indicators align (e.g. MACD bullish + EMA uptrend, or RSI recovering + price near lower BB)
 - Always require minimum 2:1 risk/reward ratio
-- Be conservative: only give confidence ≥ 70 for very clear setups
-- If no setup is compelling, return action=HOLD with confidence=0
+- Give confidence ≥ 55 for decent setups, ≥ 70 for strong setups
+- Prefer momentum: rising MACD histogram, EMA9 crossing above EMA21, volume confirmation
+- Only return HOLD if no indicator shows any directional signal
 - You are trading USDT pairs on Binance Spot with approximately $20 total capital
 - You MUST select a symbol ONLY from the candidates list provided. Do not invent or substitute symbols.
 
@@ -68,7 +69,7 @@ class AIAnalyzer:
     ) -> Optional[TradeDecision]:
         candidates = [
             s for s in signals
-            if abs(s.signal_strength) >= 25 and s.symbol not in open_positions
+            if abs(s.signal_strength) >= 15 and s.symbol not in open_positions
         ]
 
         if not candidates:
