@@ -33,13 +33,13 @@ class TradingConfig:
     excluded_symbols: List[str] = field(
         default_factory=lambda: os.getenv("EXCLUDED_SYMBOLS", "BTC,GUN").upper().split(",")
     )
-    top_pairs_count: int = field(default_factory=lambda: int(os.getenv("TOP_PAIRS_COUNT", "50")))
+    top_pairs_count: int = field(default_factory=lambda: int(os.getenv("TOP_PAIRS_COUNT", "30")))
 
     # Operational
     dry_run: bool = field(default_factory=lambda: os.getenv("DRY_RUN", "true").lower() == "true")
     log_level: str = field(default_factory=lambda: os.getenv("LOG_LEVEL", "INFO"))
     analysis_interval_minutes: int = field(
-        default_factory=lambda: int(os.getenv("ANALYSIS_INTERVAL_MINUTES", "5"))
+        default_factory=lambda: int(os.getenv("ANALYSIS_INTERVAL_MINUTES", "15"))
     )
     position_check_interval_seconds: int = field(
         default_factory=lambda: int(os.getenv("POSITION_CHECK_INTERVAL_SECONDS", "30"))

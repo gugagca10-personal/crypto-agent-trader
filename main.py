@@ -178,7 +178,13 @@ async def run():
                     if executor.open_positions:
                         logger.info(f"Open positions:\n{executor.get_open_positions_summary()}")
 
-                    if signals and len(executor.open_positions) < config.max_open_positions:
+                    strong_buys = [
+                        s for s in signals
+                        if s.signal_strength >= 30 and "BUY" in s.recommendation
+                    ]
+                    decision = None
+                    if strong_buys and len(executor.open_positions) < config.max_open_positions:
+                        logger.info(f"AI call triggered: {len(strong_buys)} strong BUY signal(s)")
                         decision = await asyncio.to_thread(
                             ai.analyze_opportunities,
                             signals,
@@ -187,8 +193,10 @@ async def run():
                             executor.get_open_symbols(),
                             config.excluded_symbols,
                         )
+                    elif not strong_buys:
+                        logger.info("AI call skipped: no strong BUY signals this cycle (cost saved)")
 
-                        if decision:
+                    if decision:
                             r2.log_decision({
                                 "timestamp": _utcnow_iso(),
                                 "action": decision.action,
